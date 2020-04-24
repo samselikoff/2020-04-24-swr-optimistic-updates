@@ -1,147 +1,41 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import useSWR from "swr";
-
-const fetcher = (url, options) =>
-  fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json"
-    },
-    ...options
-  }).then(r => {
-    if (r?.headers?.get("content-type")?.match("json")) {
-      return r.json();
-    }
-  });
-
-const useIsMountedRef = () => {
-  const isMounted = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  return isMounted;
-};
-
-let tempIdCounter = 1;
-
-function useRequestManager() {
-  let [pendingRequestIds, setPendingRequestIds] = useState([]);
-
-  function create() {
-    const requestId = Symbol();
-    setPendingRequestIds([...pendingRequestIds, requestId]);
-
-    return {
-      done() {
-        setPendingRequestIds(pendingRequestIds =>
-          pendingRequestIds.filter(id => id !== requestId)
-        );
-      }
-    };
-  }
-
-  return {
-    create,
-    hasPendingRequests: pendingRequestIds.length > 0
-  };
-}
+import { useRefState } from "../lib/hooks";
+import { fetcher } from "../lib/data-fetching";
 
 export default function Todos() {
-  let manager = useRequestManager();
-  let isMountedRef = useIsMountedRef();
-  let [newTodoRef, setNewTodoRef] = useRefState({ text: "", isDone: false });
+  let [newTodo, setNewTodo] = useState({ text: "", isDone: false });
+  let [isSaving, setIsSaving] = useState(false);
+  let newTodoInputRef = useRef();
 
-  let isSaving = manager.hasPendingRequests;
+  const { data, mutate: mutateTodos } = useSWR("/api/todos");
 
   async function createTodo(event) {
     event.preventDefault();
-    let newTodo = { ...newTodoRef.current };
-    let tempId = `t${tempIdCounter}`;
-    tempIdCounter++;
-    let localNewTodo = { ...newTodo, ...{ id: tempId } };
+    setIsSaving(true);
 
-    // Optimistic UI update
-    updateTodosCache({ todos: [...todos, localNewTodo] }, false);
+    await mutateTodos(async (data) => {
+      // Create the todo
+      let json = await fetcher("/api/todos", {
+        method: "POST",
+        body: JSON.stringify({ todo: newTodo }),
+      });
 
-    // Resetting the new todo textbox
-    setNewTodoRef({ text: "", isDone: false });
+      // Add the new todo to the cache
+      data.todos.push(json.todo);
 
-    // Create the todo
-    let request = manager.create();
-    let newTodoJson = await fetcher("/api/todos", {
-      method: "POST",
-      body: JSON.stringify({ todo: newTodo })
+      return data;
     });
 
-    if (isMountedRef.current) {
-      request.done();
-    }
-
-    // Update client side cache with record from server
-    updateTodosCache(cache => {
-      let changedIndex = cache.todos.findIndex(todo => todo.id === tempId);
-
-      return {
-        todos: cache.todos.map((oldTodo, i) =>
-          i === changedIndex ? newTodoJson.todo : oldTodo
-        )
-      };
-    }, false);
-  }
-
-  async function saveTodo(todo) {
-    // Optimistic UI update
-    let changedIndex = todos.findIndex(t => t.id === todo.id);
-    updateTodosCache(
-      {
-        todos: todos.map((oldTodo, i) => (i === changedIndex ? todo : oldTodo))
-      },
-      false
-    );
-
-    // Save the updated todo
-    let request = manager.create();
-    await fetcher(`/api/todos/${todo.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ todo })
-    });
-    if (isMountedRef.current) {
-      request.done();
-    }
-  }
-
-  async function deleteCompleted() {
-    let request = manager.create();
-    let completedTodos = todos.filter(t => t.isDone);
-    let remainingTodos = todos.filter(t => !t.isDone);
-
-    // Optimistic UI update
-    updateTodosCache({ todos: remainingTodos }, false);
-
-    // Delete all completed todos
-    await Promise.all(
-      completedTodos.map(todo =>
-        fetcher(`/api/todos/${todo.id}`, { method: "DELETE" })
-      )
-    );
-
-    if (isMountedRef.current) {
-      request.done();
-    }
+    // Reset the new todo textbox
+    setNewTodo({ text: "", isDone: false });
+    setIsSaving(false);
+    newTodoInputRef.current.focus();
   }
 
   function handleChange(event) {
-    setNewTodoRef({ ...newTodoRef.current, ...{ text: event.target.value } });
+    setNewTodo({ ...newTodo, text: event.target.value });
   }
-
-  const { data, mutate: updateTodosCache } = useSWR("/api/todos", fetcher);
-
-  let todos = data?.todos;
-  let done = todos?.filter(todo => todo.isDone).length;
 
   return (
     <div className="max-w-sm px-4 py-6 mx-auto bg-white rounded shadow-lg">
@@ -149,7 +43,8 @@ export default function Todos() {
         <h1 className="text-2xl font-bold">Todos</h1>
 
         <div className="text-blue-500">
-          {isSaving && (
+          {/* Saving indicator */}
+          {false && (
             <svg
               className="w-4 h-4 fill-current"
               viewBox="0 0 20 20"
@@ -162,7 +57,7 @@ export default function Todos() {
       </div>
 
       <div className="mt-6">
-        {!todos ? (
+        {!data ? (
           <p className="px-3 text-gray-500" data-testid="loading">
             Loading...
           </p>
@@ -172,18 +67,22 @@ export default function Todos() {
               <form onSubmit={createTodo} data-testid="new-todo-form">
                 <input
                   type="text"
-                  value={newTodoRef.current.text}
+                  value={newTodo.text}
                   onChange={handleChange}
                   placeholder="New todo"
-                  className="block w-full px-3 py-2 placeholder-gray-500 bg-white rounded shadow focus:outline-none"
+                  ref={newTodoInputRef}
+                  disabled={isSaving}
+                  className={`${
+                    isSaving ? "opacity-50" : ""
+                  } block w-full px-3 py-2 placeholder-gray-500 bg-white rounded shadow focus:outline-none`}
                 />
               </form>
             </div>
 
             {data.todos.length > 0 ? (
               <ul className="mt-8">
-                {data.todos.map(todo => (
-                  <Todo todo={todo} onChange={saveTodo} key={todo.id} />
+                {data.todos.map((todo) => (
+                  <Todo todo={todo} onChange={() => {}} key={todo.id} />
                 ))}
               </ul>
             ) : (
@@ -196,14 +95,15 @@ export default function Todos() {
             )}
 
             <div className="flex justify-between px-3 mt-12 text-sm font-medium text-gray-500">
-              {todos.length > 0 ? (
+              {data.todos.length > 0 ? (
                 <p data-testid="completed-todos">
-                  {done} / {todos.length} complete
+                  {data.todos.filter((todo) => todo.isDone).length} /{" "}
+                  {data.todos.length} complete
                 </p>
               ) : null}
-              {done > 0 ? (
+              {data.todos.filter((todo) => todo.isDone).length > 0 ? (
                 <button
-                  onClick={deleteCompleted}
+                  onClick={() => {}}
                   className="font-medium text-blue-500 focus:outline-none focus:text-blue-300"
                   data-testid="clear-completed"
                 >
@@ -218,18 +118,6 @@ export default function Todos() {
   );
 }
 
-function useRefState(initialState) {
-  let [state, setState] = useState(initialState);
-  let ref = useRef(state);
-
-  function updateRefAndSetState(newState) {
-    ref.current = newState;
-    setState(newState);
-  }
-
-  return [ref, updateRefAndSetState];
-}
-
 function Todo({ todo, onChange }) {
   let [isFocused, setIsFocused] = useState(false);
   let [localTodoRef, setLocalTodo] = useRefState({ ...todo });
@@ -241,7 +129,7 @@ function Todo({ todo, onChange }) {
   function handleCheck(event) {
     setLocalTodo({
       ...localTodoRef.current,
-      ...{ isDone: event.target.checked }
+      ...{ isDone: event.target.checked },
     });
 
     commitChanges();
