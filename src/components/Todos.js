@@ -2,35 +2,48 @@ import React, { useState, useRef } from "react";
 import useSWR from "swr";
 import { useRefState } from "../lib/hooks";
 import { fetcher } from "../lib/data-fetching";
+import { v4 } from "uuid";
 
 export default function Todos() {
   let [newTodo, setNewTodo] = useState({ text: "", isDone: false });
-  let [isSaving, setIsSaving] = useState(false);
+  let [savingCount, setSavingCount] = useState(0);
   let newTodoInputRef = useRef();
 
   const { data, mutate: mutateTodos } = useSWR("/api/todos");
 
   async function createTodo(event) {
     event.preventDefault();
-    setIsSaving(true);
+    setSavingCount((savingCount) => ++savingCount);
 
-    await mutateTodos(async (data) => {
-      // Create the todo
-      let json = await fetcher("/api/todos", {
-        method: "POST",
-        body: JSON.stringify({ todo: newTodo }),
-      });
+    let tempId = v4();
 
-      // Add the new todo to the cache
-      data.todos.push(json.todo);
-
-      return data;
-    });
+    // Optimistically updates the cache
+    await mutateTodos((data) => {
+      return {
+        ...data,
+        todos: [...data.todos, { ...newTodo, id: tempId }],
+      };
+    }, false);
 
     // Reset the new todo textbox
     setNewTodo({ text: "", isDone: false });
-    setIsSaving(false);
-    newTodoInputRef.current.focus();
+
+    // Create the todo
+    let json = await fetcher("/api/todos", {
+      method: "POST",
+      body: JSON.stringify({ todo: newTodo }),
+    });
+
+    await mutateTodos((data) => {
+      return {
+        ...data,
+        todos: data.todos.map((todo) =>
+          todo.id === tempId ? json.todo : todo
+        ),
+      };
+    }, false);
+
+    setSavingCount((savingCount) => --savingCount);
   }
 
   function handleChange(event) {
@@ -44,7 +57,7 @@ export default function Todos() {
 
         <div className="text-blue-500">
           {/* Saving indicator */}
-          {false && (
+          {savingCount > 0 && (
             <svg
               className="w-4 h-4 fill-current"
               viewBox="0 0 20 20"
@@ -71,10 +84,7 @@ export default function Todos() {
                   onChange={handleChange}
                   placeholder="New todo"
                   ref={newTodoInputRef}
-                  disabled={isSaving}
-                  className={`${
-                    isSaving ? "opacity-50" : ""
-                  } block w-full px-3 py-2 placeholder-gray-500 bg-white rounded shadow focus:outline-none`}
+                  className={`block w-full px-3 py-2 placeholder-gray-500 bg-white rounded shadow focus:outline-none`}
                 />
               </form>
             </div>
