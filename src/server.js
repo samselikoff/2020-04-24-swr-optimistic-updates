@@ -41,13 +41,16 @@ export function makeServer({ environment = "development" } = {}) {
       this.post(
         "/todos",
         (schema, request) => {
-          let attrs = JSON.parse(request.requestBody).todo;
+          if (Math.random() > 0.5) {
+            let attrs = JSON.parse(request.requestBody).todo;
 
-          return schema.todos.create(attrs);
-        }
-        // { timing: 2000 }
+            return schema.todos.create(attrs);
+          } else {
+            return new Response(500);
+          }
+        },
+        { timing: 2000 }
       );
-      // this.post("/todos", new Response(500));
 
       this.delete("/todos/:id", (schema, request) => {
         return schema.todos.find(request.params.id).destroy();

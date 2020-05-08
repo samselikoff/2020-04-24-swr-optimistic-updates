@@ -28,13 +28,13 @@ export default function Todos() {
     // Reset the new todo textbox
     setNewTodo({ text: "", isDone: false });
 
-    // Create the todo then update the cache with the server data
-    await mutateTodos(async (data) => {
-      let json = await fetcher("/api/todos", {
-        method: "POST",
-        body: JSON.stringify({ todo: newTodo }),
-      });
+    // Create the todo
+    let json = await fetcher("/api/todos", {
+      method: "POST",
+      body: JSON.stringify({ todo: newTodo }),
+    });
 
+    await mutateTodos((data) => {
       return {
         ...data,
         todos: data.todos.map((todo) =>

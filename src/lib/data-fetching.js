@@ -6,7 +6,9 @@ export const fetcher = (url, options) =>
     },
     ...options,
   }).then((r) => {
-    if (r?.headers?.get("content-type")?.match("json")) {
+    if (!r.ok) {
+      throw new Error("Network response was not ok");
+    } else if (r?.headers?.get("content-type")?.match("json")) {
       return r.json();
     }
   });
