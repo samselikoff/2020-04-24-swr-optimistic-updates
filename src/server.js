@@ -1,11 +1,11 @@
-import { Server, Model, Factory } from "miragejs";
+import { Server, Model, Factory, Response } from "miragejs";
 
 export function makeServer({ environment = "development" } = {}) {
   let server = new Server({
     environment,
 
     models: {
-      todo: Model
+      todo: Model,
     },
 
     factories: {
@@ -14,8 +14,8 @@ export function makeServer({ environment = "development" } = {}) {
           return `Todo ${i + 1}`;
         },
 
-        isDone: false
-      })
+        isDone: false,
+      }),
     },
 
     seeds(server) {
@@ -26,9 +26,9 @@ export function makeServer({ environment = "development" } = {}) {
 
     routes() {
       this.namespace = "api";
-      this.timing = 750;
+      // this.timing = 750;
 
-      this.get("/todos", schema => {
+      this.get("/todos", (schema) => {
         return schema.todos.all();
       });
 
@@ -44,14 +44,15 @@ export function makeServer({ environment = "development" } = {}) {
           let attrs = JSON.parse(request.requestBody).todo;
 
           return schema.todos.create(attrs);
-        },
-        { timing: 2000 }
+        }
+        // { timing: 2000 }
       );
+      // this.post("/todos", new Response(500));
 
       this.delete("/todos/:id", (schema, request) => {
         return schema.todos.find(request.params.id).destroy();
       });
-    }
+    },
   });
 
   return server;
