@@ -29,19 +29,30 @@ export default function Todos() {
     setNewTodo({ text: "", isDone: false });
 
     // Create the todo
-    let json = await fetcher("/api/todos", {
-      method: "POST",
-      body: JSON.stringify({ todo: newTodo }),
-    });
+    try {
+      let json = await fetcher("/api/todos", {
+        method: "POST",
+        body: JSON.stringify({ todo: newTodo }),
+      });
 
-    await mutateTodos((data) => {
-      return {
-        ...data,
-        todos: data.todos.map((todo) =>
-          todo.id === tempId ? json.todo : todo
-        ),
-      };
-    }, false);
+      await mutateTodos((data) => {
+        return {
+          ...data,
+          todos: data.todos.map((todo) =>
+            todo.id === tempId ? json.todo : todo
+          ),
+        };
+      }, false);
+    } catch (err) {
+      // Revert changes on error
+      await mutateTodos((data) => {
+        return {
+          ...data,
+          todos: data.todos.filter((todo) => todo.id !== tempId),
+        };
+      }, false);
+      setNewTodo(newTodo);
+    }
 
     setSavingCount((savingCount) => --savingCount);
   }
